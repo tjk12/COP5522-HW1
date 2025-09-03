@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # This script compiles and runs C++ benchmarks with a self-contained configuration
-# and outputs the results to results.json.
+# and outputs the results to results.json. It is designed for Linux compatibility.
 
 # --- Dependency Check ---
 if ! command -v bc &> /dev/null; then
@@ -30,8 +30,8 @@ if [ $? -ne 0 ]; then
 fi
 echo "Compilation successful."
 
-# Initialize JSON output
-echo "[]" > $RESULTS_FILE
+# Initialize JSON construction
+JSON_CONTENT=""
 
 # 2. Run benchmarks
 echo -e "\n--- Running Benchmarks (best of $RUNS runs) ---"
@@ -46,19 +46,25 @@ for n in "${MATRIX_SIZES[@]}"; do
         
         echo -n "  - Benchmarking $opt_key..."
         
-        BEST_TIME="1e9" # Start with a very large number
+        BEST_TIME="99999" 
         
         for ((j=1; j<=RUNS; j++)); do
-            # Extract time from C++ program output
-            CURRENT_TIME=$(./$EXE_NAME $n 2>/dev/null | grep "Execution time:" | awk '{print $3}')
+            # Capture both stdout and stderr to diagnose C++ execution issues.
+            PROGRAM_OUTPUT=$(./$EXE_NAME $n 2>&1)
+            CURRENT_TIME=$(echo "$PROGRAM_OUTPUT" | grep "Execution time:" | awk '{print $3}')
             
-            # Check if CURRENT_TIME is a non-empty string before comparing
-            if [[ -n "$CURRENT_TIME" ]]; then
+            # *** MODIFIED PART ***
+            # The regex now correctly parses both decimal and scientific notation (e.g., 1.23e-05)
+            if [[ "$CURRENT_TIME" =~ ^[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$ ]]; then
                 if (( $(echo "$CURRENT_TIME < $BEST_TIME" | bc -l) )); then
                     BEST_TIME=$CURRENT_TIME
                 fi
             else
-                echo -n " (fail)"
+                # If a run fails, print the captured error message from the C++ program.
+                # This helps diagnose issues like "Illegal instruction".
+                # We remove newlines to keep the output clean.
+                ERROR_MSG=$(echo "$PROGRAM_OUTPUT" | tr -d '\n')
+                echo -n " (fail: $ERROR_MSG)"
             fi
         done
         
@@ -68,14 +74,16 @@ for n in "${MATRIX_SIZES[@]}"; do
     
     RESULT_ROW="${RESULT_ROW}}"
 
-    # This manual JSON construction avoids the 'jq' dependency.
-    # It uses Linux-compatible sed syntax.
-    if [ $(wc -c <"$RESULTS_FILE") -le 3 ]; then # If file is empty or just "[]"
-        sed -i "s/\[\]/\[$RESULT_ROW\]/" "$RESULTS_FILE"
-    else # Append to the existing array
-        sed -i "s/\]/, $RESULT_ROW\]/" "$RESULTS_FILE"
+    # Build the JSON array content in a variable for robustness
+    if [ -z "$JSON_CONTENT" ]; then
+        JSON_CONTENT="$RESULT_ROW"
+    else
+        JSON_CONTENT="$JSON_CONTENT, $RESULT_ROW"
     fi
 done
+
+# Write the complete JSON content to the file in one go. This is safer than sed.
+echo "[$JSON_CONTENT]" > $RESULTS_FILE
 
 # 3. Clean up executables
 echo -e "\n--- Cleaning up executables ---"
