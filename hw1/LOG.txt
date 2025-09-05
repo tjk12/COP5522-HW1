@@ -1,0 +1,26 @@
+Development Log: HW1 Performance Optimization
+Name: Trever Knie
+
+Sep 1, 2025: Project Initialization.
+- Wrote the initial baseline version of the matrix-vector multiplication code in Mv.cpp.
+- Established a basic Makefile to compile the baseline target.
+
+Sep 2, 2025: Implementation of Optimization Versions.
+- Created hw1.cpp to house multiple optimization strategies: a straightforward baseline, loop unrolling, loop interchange, and an AVX2 SIMD version.
+- Developed the initial run_benchmarks.sh and create_report.py scripts to automate the testing and analysis workflow.
+
+Sep 3, 2025: Integration and Debugging.
+- Problem: Initial benchmark runs failed. Diagnostics, with AI assistance, revealed that Mv.cpp and hw1.cpp had incompatible command-line arguments and output formats.
+- Solution ("The Happy Compromise"): Refactored hw1.cpp to make the optimization type an optional argument, defaulting to 'avx2'. This allowed hw1 to be called identically to Mv for simple comparisons while retaining the flexibility to test all versions.
+- Solution: Standardized the output format across both executables to print time in microseconds ("Time = ... us"), which greatly simplified the parsing logic in run_benchmarks.sh.
+
+Sep 4, 2025: Compiler and Data Format Bug Fixes.
+- Problem: Encountered compilation errors in hw1.cpp related to missing target features ('avx', 'fma') for the AVX2 intrinsics.
+- Bug Fix: Corrected the Makefile by adding the required '-mavx2' and '-mfma' compiler flags to the compilation rule for the hw1 executable.
+- Problem: The Python report script failed with a JSON decoding error.
+- Bug Fix: Traced the issue to a malformed results.json file where the shell script produced numbers without a leading zero (e.g., .00123). Corrected the run_benchmarks.sh script to ensure all numbers are formatted into valid JSON, making the data pipeline robust.
+
+Sep 5, 2025: Finalization and Reporting.
+- Report Refinement: Updated the PDF report to explicitly state that the entire hw1 executable is compiled with AVX2/FMA support, providing crucial context for the performance analysis.
+- Final Review: Performed a complete, end-to-end run of the benchmark script to generate the final hw1.pdf and results.json.
+- Submission: Created the final submission archive containing all necessary source code, scripts, and reports.

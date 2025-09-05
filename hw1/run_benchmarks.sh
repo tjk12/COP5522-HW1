@@ -13,8 +13,13 @@ fi
 # --- Internal Configuration ---
 MATRIX_SIZES=(256 512 1024 2048 4048)
 RUNS=3
-OPTIMIZER_KEYS=("baseline" "avx2" "unroll" "interchange")
-OPTIMIZER_EXES=("baseline" "avx2" "unroll" "interchange")
+# Define benchmarks as "key:command_prefix". The matrix size will be appended.
+BENCHMARKS=(
+    "baseline_Mv:./Mv"
+    "hw1_interchange:./hw1 interchange"
+    "hw1_unroll:./hw1 unroll"
+    "hw1_avx2:./hw1 avx2"
+)
 RESULTS_FILE="results.json"
 
 # --- Main Script ---
@@ -40,41 +45,56 @@ for n in "${MATRIX_SIZES[@]}"; do
     echo "Testing size n = $n..."
     RESULT_ROW="{\"n\": $n"
     
-    for i in "${!OPTIMIZER_KEYS[@]}"; do
-        opt_key="${OPTIMIZER_KEYS[$i]}"
-        EXE_NAME="${OPTIMIZER_EXES[$i]}"
+    for benchmark in "${BENCHMARKS[@]}"; do
+        # Split the benchmark string into a key and the command to run
+        IFS=':' read -r opt_key CMD_PREFIX <<< "$benchmark"
         
-        echo -n "  - Benchmarking $opt_key..."
+        # Construct the full command with the matrix size
+        FULL_CMD="$CMD_PREFIX $n"
+        
+        echo -n "  - Benchmarking $opt_key ($FULL_CMD)..."
         
         BEST_TIME="99999" 
         
         for ((j=1; j<=RUNS; j++)); do
-            # Capture both stdout and stderr to diagnose C++ execution issues.
-            PROGRAM_OUTPUT=$(./$EXE_NAME $n 2>&1)
-            CURRENT_TIME=$(echo "$PROGRAM_OUTPUT" | grep "Execution time:" | awk '{print $3}')
+            # Capture both stdout and stderr to diagnose issues
+            PROGRAM_OUTPUT=$(eval $FULL_CMD 2>&1)
             
-            # *** MODIFIED PART ***
-            # The regex now correctly parses both decimal and scientific notation (e.g., 1.23e-05)
+            CURRENT_TIME=""
+
+            TIME_US=$(echo "$PROGRAM_OUTPUT" | grep "Time =" | awk '{print $3}')
+
+            if [[ "$TIME_US" =~ ^[0-9]*\.?[0-9]+$ ]]; then
+                # Convert microseconds to seconds using bc for floating point math
+                CURRENT_TIME=$(echo "scale=10; $TIME_US / 1000000" | bc -l)
+            else
+                CURRENT_TIME="" # Ensure CURRENT_TIME is empty on failure
+            fi
+
+            # Check if we successfully parsed a valid time
             if [[ "$CURRENT_TIME" =~ ^[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$ ]]; then
                 if (( $(echo "$CURRENT_TIME < $BEST_TIME" | bc -l) )); then
                     BEST_TIME=$CURRENT_TIME
                 fi
             else
-                # If a run fails, print the captured error message from the C++ program.
-                # This helps diagnose issues like "Illegal instruction".
-                # We remove newlines to keep the output clean.
+                # If a run fails, print the captured error message
                 ERROR_MSG=$(echo "$PROGRAM_OUTPUT" | tr -d '\n')
                 echo -n " (fail: $ERROR_MSG)"
             fi
         done
         
+        # --- FIX: Ensure BEST_TIME has a leading zero for valid JSON ---
+        if [[ $BEST_TIME == .* ]]; then
+            BEST_TIME="0$BEST_TIME"
+        fi
+
         echo " best: ${BEST_TIME}s"
         RESULT_ROW="${RESULT_ROW}, \"${opt_key}_time\": ${BEST_TIME}"
     done
     
     RESULT_ROW="${RESULT_ROW}}"
 
-    # Build the JSON array content in a variable for robustness
+    # Build the JSON array content in a variable
     if [ -z "$JSON_CONTENT" ]; then
         JSON_CONTENT="$RESULT_ROW"
     else
@@ -82,7 +102,7 @@ for n in "${MATRIX_SIZES[@]}"; do
     fi
 done
 
-# Write the complete JSON content to the file in one go. This is safer than sed.
+# Write the complete JSON content to the file
 echo "[$JSON_CONTENT]" > $RESULTS_FILE
 
 # 3. Clean up executables
@@ -93,4 +113,3 @@ if [ $? -ne 0 ]; then
 fi
 
 echo -e "\nBenchmark process complete. Results saved to $RESULTS_FILE"
-
